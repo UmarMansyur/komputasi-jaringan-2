@@ -40,7 +40,7 @@ def demo_fanout(conn: Connection):
 
 
 def demo_topic(conn: Connection):
-    print("=== 2. Topic (exchange 'bank', type topic, routing EKS AK) ===")
+    print("=== 2. Topic (exchange 'bank', type topic, routing EKSAK) ===")
     print("Contoh bank: transaksi.transfer / transaksi.validasi masing-masing ke worker-nya.")
     print("Aturan: pesan hanya masuk queue yang binding-nya SAMA PERSIS dengan routing_key.")
     ch = conn.channel()
@@ -57,7 +57,7 @@ def demo_topic(conn: Connection):
     print("  kirim routing_key='transaksi.transfer'")
     print(f"  -> queue 'transaksi.transfer' terima {len(rt)} pesan: {rt}")
     print(f"  -> queue 'transaksi.validasi' terima {len(rv)} pesan: {rv}")
-    print("  Kesimpulan: hanya queue yang cocok EKS AK yang menerima.\n")
+    print("  Kesimpulan: hanya queue yang cocok EKSAK yang menerima.\n")
     return {"transfer": rt, "validasi": rv}
 
 
