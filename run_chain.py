@@ -1,4 +1,4 @@
-"""Demo chain / group Celery (analogi run_chain.py contoh dosen, versi akademik).
+"""Demo chain / group Celery (analogi run_chain.py contoh dosen, versi perbankan).
 
 Tanpa broker: pakai eager sehingga bisa jalan di laptop mana pun.
 Dengan broker: hapus baris task_always_eager dan jalankan worker dulu.
@@ -19,29 +19,29 @@ def main():
 
     from celery import chain, group
     from celery_app import app
-    from tasks import hitung_nilai_akhir, tambah_predikat, rekap_kelas
+    from tasks import proses_transfer, kirim_mutasi, rekap_keuangan
 
     if not args.broker:
         app.conf.task_always_eager = True  # demo tanpa RabbitMQ
 
-    print("=== Chain: hitung_nilai_akhir -> tambah_predikat ===")
+    print("=== Chain: proses_transfer -> kirim_mutasi ===")
     job = chain(
-        hitung_nilai_akhir.s("Ani", 80, 75, 90),
-        tambah_predikat.s(),
+        proses_transfer.s("8812340001", "8856780501", 500000),
+        kirim_mutasi.s(),
     )
     res = job.apply_async()
     print(json.dumps(res.get(timeout=30), indent=2))
 
-    print("\n=== Group: 3 nilai paralel + rekap ===")
+    print("\n=== Group: 3 transfer paralel + rekap ===")
     g = group(
-        hitung_nilai_akhir.s("Ani", 80, 75, 90),
-        hitung_nilai_akhir.s("Budi", 60, 65, 70),
-        hitung_nilai_akhir.s("Citra", 90, 95, 92),
+        proses_transfer.s("8812340001", "8856780501", 500000),
+        proses_transfer.s("8811110002", "8822220502", 250000),
+        proses_transfer.s("8833330003", "8844440503", 1000000),
     )
     hasil = g.apply_async().get(timeout=30)
     print(json.dumps(hasil, indent=2))
-    na_list = [h["nilai_akhir"] for h in hasil]
-    print("rekap:", json.dumps(rekap_kelas.apply_async(args=[na_list]).get(timeout=30), indent=2))
+    total_list = [h["total_debet"] for h in hasil]
+    print("rekap:", json.dumps(rekap_keuangan.apply_async(args=[total_list]).get(timeout=30), indent=2))
 
 
 if __name__ == "__main__":

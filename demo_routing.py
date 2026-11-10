@@ -1,4 +1,4 @@
-"""Demo message handling: Fan-Out vs Topic vs Wildcard (domain akademik).
+"""Demo message handling: Fan-Out vs Topic vs Wildcard (domain perbankan).
 
 Hanya DEMO routing AMQP memakai kombu, default memory:// sehingga bisa jalan
 TANPA RabbitMQ di laptop mana pun. Dengan --broker amqp://... bisa dites
@@ -27,11 +27,11 @@ def _drain(channel, queue: Queue):
 
 
 def demo_fanout(conn: Connection):
-    print("=== 1. Fan-Out (exchange 'pengumuman', type fanout) ===")
-    print("Contoh akademik: 1 pengumuman 'Kuliah daring besok' harus diterima SEMUA prodi.")
+    print("=== 1. Fan-Out (exchange 'notifikasi', type fanout) ===")
+    print("Contoh bank: 1 notifikasi 'Transfer berhasil' harus diterima SEMUA kanal (mobile + email).")
     print("Aturan: routing_key DIABAIKAN, 1 pesan disalin ke semua queue yang ter-bind.")
     ch = conn.channel()
-    ex = Exchange("pengumuman", type="fanout")
+    ex = Exchange("notifikasi", type="fanout")
     qa = Queue("demo_fanout_A", exchange=ex, routing_key="")
     qb = Queue("demo_fanout_B", exchange=ex, routing_key="")
     qa(ch).declare()
@@ -40,7 +40,7 @@ def demo_fanout(conn: Connection):
     _drain(ch, qa)
     _drain(ch, qb)
     conn.Producer(ch).publish(
-        {"pengumuman": "Kuliah daring besok!"}, exchange=ex, routing_key="diabaikan.saja"
+        {"notifikasi": "Transfer Rp500.000 berhasil!"}, exchange=ex, routing_key="diabaikan.saja"
     )
     ra, rb = _drain(ch, qa), _drain(ch, qb)
     print(f"  kirim 1 pesan  -> queue A terima {len(ra)}, queue B terima {len(rb)}")
@@ -51,49 +51,49 @@ def demo_fanout(conn: Connection):
 
 
 def demo_topic(conn: Connection):
-    print("=== 2. Topic (exchange 'kampus', type topic, routing EKS AK) ===")
-    print("Contoh akademik: nilai.tugas / nilai.uts / nilai.uas masing-masing ke worker-nya.")
+    print("=== 2. Topic (exchange 'bank', type topic, routing EKS AK) ===")
+    print("Contoh bank: transaksi.transfer / transaksi.validasi masing-masing ke worker-nya.")
     print("Aturan: pesan hanya masuk queue yang binding-nya SAMA PERSIS dengan routing_key.")
     ch = conn.channel()
-    ex = Exchange("kampus", type="topic")
-    qt = Queue("demo_topic_tugas", exchange=ex, routing_key="nilai.tugas")
-    qu = Queue("demo_topic_uts", exchange=ex, routing_key="nilai.uts")
+    ex = Exchange("bank", type="topic")
+    qt = Queue("demo_topic_transfer", exchange=ex, routing_key="transaksi.transfer")
+    qv = Queue("demo_topic_validasi", exchange=ex, routing_key="transaksi.validasi")
     qt(ch).declare()
-    qu(ch).declare()
+    qv(ch).declare()
     _drain(ch, qt)
-    _drain(ch, qu)
+    _drain(ch, qv)
     prod = conn.Producer(ch)
-    prod.publish({"mhs": "Ani", "nilai": 80}, exchange=ex, routing_key="nilai.tugas")
-    rt, ru = _drain(ch, qt), _drain(ch, qu)
-    print("  kirim routing_key='nilai.tugas'")
-    print(f"  -> queue 'nilai.tugas' terima {len(rt)} pesan: {rt}")
-    print(f"  -> queue 'nilai.uts'   terima {len(ru)} pesan: {ru}")
+    prod.publish({"id": "TRX-001", "nominal": 500000}, exchange=ex, routing_key="transaksi.transfer")
+    rt, rv = _drain(ch, qt), _drain(ch, qv)
+    print("  kirim routing_key='transaksi.transfer'")
+    print(f"  -> queue 'transaksi.transfer' terima {len(rt)} pesan: {rt}")
+    print(f"  -> queue 'transaksi.validasi' terima {len(rv)} pesan: {rv}")
     print("  Kesimpulan: hanya queue yang cocok EKS AK yang menerima.\n")
-    return {"tugas": rt, "uts": ru}
+    return {"transfer": rt, "validasi": rv}
 
 
 def demo_wildcard(conn: Connection):
     print("=== 3. Wildcard (masih exchange topic, binding pakai * dan #) ===")
-    print("Contoh akademik: 'nilai.*' dan 'nilai.#' untuk rekap fleksibel.")
+    print("Contoh bank: 'transaksi.*' dan 'transaksi.#' untuk rekap fleksibel.")
     print("Aturan: '*' = tepat 1 kata, '#' = 0 kata atau lebih (dipisah titik).")
     ch = conn.channel()
-    ex = Exchange("kampus", type="topic")
-    q_star = Queue("demo_wild_star", exchange=ex, routing_key="nilai.*")
-    q_hash = Queue("demo_wild_hash", exchange=ex, routing_key="nilai.#")
+    ex = Exchange("bank", type="topic")
+    q_star = Queue("demo_wild_star", exchange=ex, routing_key="transaksi.*")
+    q_hash = Queue("demo_wild_hash", exchange=ex, routing_key="transaksi.#")
     q_star(ch).declare()
     q_hash(ch).declare()
     _drain(ch, q_star)
     _drain(ch, q_hash)
     prod = conn.Producer(ch)
-    prod.publish({"n": 1}, exchange=ex, routing_key="nilai.tugas")      # 2 level
-    prod.publish({"n": 2}, exchange=ex, routing_key="nilai.tugas.remidi")  # 3 level
-    prod.publish({"n": 3}, exchange=ex, routing_key="absensi.masuk")    # tidak terkait nilai
+    prod.publish({"n": 1}, exchange=ex, routing_key="transaksi.transfer")          # 2 level
+    prod.publish({"n": 2}, exchange=ex, routing_key="transaksi.transfer.bifast")  # 3 level
+    prod.publish({"n": 3}, exchange=ex, routing_key="kliring.masuk")               # bukan transaksi
     rs, rh = _drain(ch, q_star), _drain(ch, q_hash)
-    print("  kirim 3 pesan: 'nilai.tugas', 'nilai.tugas.remidi', 'absensi.masuk'")
-    print(f"  -> binding 'nilai.*' terima {len(rs)} pesan: {rs}")
-    print("     ('*' hanya cocok 2-level: nilai.tugas YA, nilai.tugas.remidi TIDAK)")
-    print(f"  -> binding 'nilai.#' terima {len(rh)} pesan: {rh}")
-    print("     ('#' cocok semua awalan nilai.: 2-level YA, 3-level YA, absensi TIDAK)")
+    print("  kirim 3 pesan: 'transaksi.transfer', 'transaksi.transfer.bifast', 'kliring.masuk'")
+    print(f"  -> binding 'transaksi.*' terima {len(rs)} pesan: {rs}")
+    print("     ('*' hanya cocok 2-level: transaksi.transfer YA, .bifast TIDAK)")
+    print(f"  -> binding 'transaksi.#' terima {len(rh)} pesan: {rh}")
+    print("     ('#' cocok semua awalan transaksi.: 2-level YA, 3-level YA, kliring TIDAK)")
     print("  Kesimpulan: wildcard memperluas/menyempitkan cakupan topic tanpa tambah exchange.\n")
     return {"star": rs, "hash": rh}
 
@@ -111,9 +111,9 @@ def main():
     demo_topic(conn)
     demo_wildcard(conn)
     print("--- Ringkasan perbedaan ---")
-    print("Fan-Out  : 1 pesan -> SEMUA queue (routing_key diabaikan). Contoh: pengumuman kampus.")
-    print("Topic    : 1 pesan -> queue dengan routing_key SAMA PERSIS. Contoh: nilai.tugas vs nilai.uts.")
-    print("Wildcard : pola di atas topic; '*' = 1 kata, '#' = 0..N kata. Contoh: nilai.* vs nilai.#.")
+    print("Fan-Out  : 1 pesan -> SEMUA queue (routing_key diabaikan). Contoh: notifikasi bank.")
+    print("Topic    : 1 pesan -> queue dengan routing_key SAMA PERSIS. Contoh: transaksi.transfer vs transaksi.validasi.")
+    print("Wildcard : pola di atas topic; '*' = 1 kata, '#' = 0..N kata. Contoh: transaksi.* vs transaksi.#.")
 
 
 if __name__ == "__main__":

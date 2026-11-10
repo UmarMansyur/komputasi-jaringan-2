@@ -1,7 +1,7 @@
 """Producer — pembangkit data masukan (input generator) untuk broker + worker.
 
 Tugas 3: skrip producer yang pesannya diterima broker dan dikerjakan worker.
-Domain akademik (demo saja): data mahasiswa + nilai acak.
+Domain perbankan (demo saja): data transaksi + nominal acak.
 
 Mode:
   --eager   : tanpa RabbitMQ, task dieksekusi langsung (untuk demo di laptop).
@@ -9,9 +9,9 @@ Mode:
 
 Contoh:
     python producer.py --demo --eager            # demo cepat tanpa broker
-    python producer.py --demo                    # kirim 5 job campuran ke broker
-    python producer.py --app nilai --num 6       # 6 nilai acak ke topic nilai.akhir
-    python producer.py --app pengumuman --pesan "UAS dimajukan" --num 1
+    python producer.py --demo                    # kirim 8 job campuran ke broker
+    python producer.py --app transfer --num 6    # 6 transfer acak ke topic transaksi.transfer
+    python producer.py --app notifikasi --pesan "Transfer Rp500.000 berhasil!" --num 1
     python producer.py --app rekap --num 1 --eager
 """
 
@@ -20,34 +20,41 @@ import json
 import random
 import time
 
-NAMES = ["Ani", "Budi", "Citra", "Dimas", "Eka", "Fajar", "Gita", "Hadi"]
+# Simulasi akun yang sedang login: rekening asal diambil dari sini,
+# nasabah cukup memilih rekening tujuan dan memasukkan nominal.
+AKUN_LOGIN = "8800001234"
 
 
-def gen_mahasiswa(rng: random.Random, i: int) -> dict:
+def gen_transaksi(rng: random.Random, i: int) -> dict:
+    # Rekening asal diperoleh dari akun yang sedang digunakan (simulasi login).
+    asal = AKUN_LOGIN
+    tujuan = f"88{rng.randint(1000, 9999)}{i + 500:04d}"
     return {
-        "nama": f"{rng.choice(NAMES)}-{i:03d}",
-        "tugas": rng.randint(50, 100),
-        "uts": rng.randint(50, 100),
-        "uas": rng.randint(50, 100),
+        "id": f"TRX-{i:03d}",
+        "asal": asal,
+        "tujuan": tujuan,
+        "nominal": rng.randint(50000, 1000000),
+        "saldo": 2000000,
     }
 
 
 def send_eager(app_name: str, jobs: list):
     """Jalankan task langsung tanpa broker (Celery eager)."""
-    from tasks import echo_nama, hitung_nilai_akhir, rekap_kelas, broadcast_pengumuman
+    from tasks import validasi_transaksi, proses_transfer, rekap_keuangan, notifikasi_transaksi
 
     out = []
     for job in jobs:
         kind = job["kind"]
-        if kind == "echo":
-            r = echo_nama.apply(args=[job["nama"]]).get()
-        elif kind == "nilai":
+        if kind == "validasi":
             d = job["data"]
-            r = hitung_nilai_akhir.apply(args=[d["nama"], d["tugas"], d["uts"], d["uas"]]).get()
+            r = validasi_transaksi.apply(args=[d["id"], d["asal"], d["tujuan"], d["nominal"], d.get("saldo", 2000000)]).get()
+        elif kind == "transfer":
+            d = job["data"]
+            r = proses_transfer.apply(args=[d["asal"], d["tujuan"], d["nominal"]]).get()
         elif kind == "rekap":
-            r = rekap_kelas.apply(args=[job["daftar"]]).get()
-        elif kind == "pengumuman":
-            r = broadcast_pengumuman.apply(args=[job["pesan"]]).get()
+            r = rekap_keuangan.apply(args=[job["daftar"]]).get()
+        elif kind == "notifikasi":
+            r = notifikasi_transaksi.apply(args=[job["pesan"]]).get()
         else:
             r = {"error": f"kind {kind}?"}
         print(f"[PRODUCER-eager] {kind} -> {json.dumps(r)}")
@@ -57,29 +64,33 @@ def send_eager(app_name: str, jobs: list):
 
 def send_broker(app_name: str, jobs: list):
     """Kirim task ke broker RabbitMQ (butuh worker hidup)."""
-    from tasks import echo_nama, hitung_nilai_akhir, rekap_kelas, broadcast_pengumuman
+    from tasks import validasi_transaksi, proses_transfer, rekap_keuangan, notifikasi_transaksi
 
     out = []
     try:
         for job in jobs:
             kind = job["kind"]
-            if kind == "echo":
-                r = echo_nama.delay(job["nama"])
-            elif kind == "nilai":
+            if kind == "validasi":
                 d = job["data"]
-                # routing topic eksplisit (Tugas 1): nilai.akhir
-                r = hitung_nilai_akhir.apply_async(
-                    args=[d["nama"], d["tugas"], d["uts"], d["uas"]],
-                    exchange="kampus", routing_key="nilai.akhir",
+                r = validasi_transaksi.apply_async(
+                    args=[d["id"], d["asal"], d["tujuan"], d["nominal"], d.get("saldo", 2000000)],
+                    exchange="bank", routing_key="transaksi.validasi",
+                )
+            elif kind == "transfer":
+                d = job["data"]
+                # routing topic eksplisit (Tugas 1): transaksi.transfer
+                r = proses_transfer.apply_async(
+                    args=[d["asal"], d["tujuan"], d["nominal"]],
+                    exchange="bank", routing_key="transaksi.transfer",
                 )
             elif kind == "rekap":
-                r = rekap_kelas.apply_async(
-                    args=[job["daftar"]], exchange="kampus", routing_key="nilai.rekap"
+                r = rekap_keuangan.apply_async(
+                    args=[job["daftar"]], exchange="bank", routing_key="keuangan.rekap"
                 )
-            elif kind == "pengumuman":
-                # fan-out: exchange pengumuman, routing_key diabaikan
-                r = broadcast_pengumuman.apply_async(
-                    args=[job["pesan"]], exchange="pengumuman"
+            elif kind == "notifikasi":
+                # fan-out: exchange notifikasi, routing_key diabaikan
+                r = notifikasi_transaksi.apply_async(
+                    args=[job["pesan"]], exchange="notifikasi"
                 )
             else:
                 continue
@@ -100,13 +111,13 @@ def send_broker(app_name: str, jobs: list):
 
 
 def main():
-    ap = argparse.ArgumentParser(description="Producer input generator (akademik demo)")
+    ap = argparse.ArgumentParser(description="Producer input generator (perbankan demo)")
     ap.add_argument("--app", default="campuran",
-                    help="echo | nilai | rekap | pengumuman | campuran")
+                    help="validasi | transfer | rekap | notifikasi | campuran")
     ap.add_argument("--num", type=int, default=5, help="jumlah pesan yang dibangkitkan")
-    ap.add_argument("--pesan", default="Kuliah daring besok!", help="isi pengumuman")
+    ap.add_argument("--pesan", default="Transfer Rp500.000 berhasil!", help="isi notifikasi")
     ap.add_argument("--demo", action="store_true",
-                    help="kirim contoh campuran: echo+nilai+rekap+pengumuman")
+                    help="kirim contoh campuran: validasi+transfer+rekap+notifikasi")
     ap.add_argument("--eager", action="store_true",
                     help="eksekusi langsung tanpa broker/RabbitMQ")
     ap.add_argument("--seed", type=int, default=7)
@@ -116,24 +127,24 @@ def main():
     jobs = []
     if args.demo or args.app == "campuran":
         for i in range(max(1, args.num)):
-            d = gen_mahasiswa(rng, i + 1)
-            jobs.append({"kind": "nilai", "data": d})
-        jobs.append({"kind": "echo", "nama": "Ani"})
-        jobs.append({"kind": "rekap", "daftar": [70, 85, 90, 55, 78]})
-        jobs.append({"kind": "pengumuman", "pesan": args.pesan})
-    elif args.app == "echo":
+            d = gen_transaksi(rng, i + 1)
+            jobs.append({"kind": "transfer", "data": d})
+        jobs.append({"kind": "validasi", "data": gen_transaksi(rng, 99)})
+        jobs.append({"kind": "rekap", "daftar": [150000, 75000, 500000, 120000, 300000]})
+        jobs.append({"kind": "notifikasi", "pesan": args.pesan})
+    elif args.app == "validasi":
         for i in range(args.num):
-            jobs.append({"kind": "echo", "nama": gen_mahasiswa(rng, i + 1)["nama"]})
-    elif args.app == "nilai":
+            jobs.append({"kind": "validasi", "data": gen_transaksi(rng, i + 1)})
+    elif args.app == "transfer":
         for i in range(args.num):
-            jobs.append({"kind": "nilai", "data": gen_mahasiswa(rng, i + 1)})
+            jobs.append({"kind": "transfer", "data": gen_transaksi(rng, i + 1)})
     elif args.app == "rekap":
         for _ in range(args.num):
             jobs.append({"kind": "rekap",
-                         "daftar": [rng.randint(50, 100) for _ in range(10)]})
-    elif args.app == "pengumuman":
+                         "daftar": [rng.randint(50000, 1000000) for _ in range(10)]})
+    elif args.app == "notifikasi":
         for _ in range(args.num):
-            jobs.append({"kind": "pengumuman", "pesan": args.pesan})
+            jobs.append({"kind": "notifikasi", "pesan": args.pesan})
     else:
         raise SystemExit(f"--app tidak dikenal: {args.app}")
 
