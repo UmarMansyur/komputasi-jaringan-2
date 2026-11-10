@@ -1,0 +1,99 @@
+[broker] memory://
+
+=== 1. Fan-Out (exchange 'pengumuman', type fanout) ===
+Contoh akademik: 1 pengumuman 'Kuliah daring besok' harus diterima SEMUA prodi.
+Aturan: routing_key DIABAIKAN, 1 pesan disalin ke semua queue yang ter-bind.
+  kirim 1 pesan  -> queue A terima 1, queue B terima 1
+  isi A: [{'pengumuman': 'Kuliah daring besok!'}]
+  isi B: [{'pengumuman': 'Kuliah daring besok!'}]
+  Kesimpulan: KEDUA queue dapat SALINAN yang sama (broadcast).
+
+=== 2. Topic (exchange 'kampus', type topic, routing EKS AK) ===
+Contoh akademik: nilai.tugas / nilai.uts / nilai.uas masing-masing ke worker-nya.
+Aturan: pesan hanya masuk queue yang binding-nya SAMA PERSIS dengan routing_key.
+  kirim routing_key='nilai.tugas'
+  -> queue 'nilai.tugas' terima 1 pesan: [{'mhs': 'Ani', 'nilai': 80}]
+  -> queue 'nilai.uts'   terima 0 pesan: []
+  Kesimpulan: hanya queue yang cocok EKS AK yang menerima.
+
+=== 3. Wildcard (masih exchange topic, binding pakai * dan #) ===
+Contoh akademik: 'nilai.*' dan 'nilai.#' untuk rekap fleksibel.
+Aturan: '*' = tepat 1 kata, '#' = 0 kata atau lebih (dipisah titik).
+  kirim 3 pesan: 'nilai.tugas', 'nilai.tugas.remidi', 'absensi.masuk'
+  -> binding 'nilai.*' terima 1 pesan: [{'n': 1}]
+     ('*' hanya cocok 2-level: nilai.tugas YA, nilai.tugas.remidi TIDAK)
+  -> binding 'nilai.#' terima 2 pesan: [{'n': 1}, {'n': 2}]
+     ('#' cocok semua awalan nilai.: 2-level YA, 3-level YA, absensi TIDAK)
+  Kesimpulan: wildcard memperluas/menyempitkan cakupan topic tanpa tambah exchange.
+
+--- Ringkasan perbedaan ---
+Fan-Out  : 1 pesan -> SEMUA queue (routing_key diabaikan). Contoh: pengumuman kampus.
+Topic    : 1 pesan -> queue dengan routing_key SAMA PERSIS. Contoh: nilai.tugas vs nilai.uts.
+Wildcard : pola di atas topic; '*' = 1 kata, '#' = 0..N kata. Contoh: nilai.* vs nilai.#.
+===== producer =====
+[PRODUCER] membangkitkan 8 pesan (mode=eager)
+[PRODUCER-eager] nilai -> {"nama": "Fajar-001", "tugas": 59, "uts": 75, "uas": 91, "nilai_akhir": 76.6, "grade": "B", "status": "ok"}
+[PRODUCER-eager] nilai -> {"nama": "Ani-002", "tugas": 54, "uts": 84, "uas": 56, "nilai_akhir": 63.8, "grade": "C", "status": "ok"}
+[PRODUCER-eager] nilai -> {"nama": "Fajar-003", "tugas": 87, "uts": 53, "uas": 82, "nilai_akhir": 74.8, "grade": "B", "status": "ok"}
+[PRODUCER-eager] nilai -> {"nama": "Dimas-004", "tugas": 52, "uts": 55, "uas": 77, "nilai_akhir": 62.9, "grade": "C", "status": "ok"}
+[PRODUCER-eager] nilai -> {"nama": "Gita-005", "tugas": 54, "uts": 65, "uas": 55, "nilai_akhir": 57.7, "grade": "D", "status": "ok"}
+[PRODUCER-eager] echo -> {"nama": "Ani", "sapa": "Halo, Ani!", "status": "ok"}
+[PRODUCER-eager] rekap -> {"jumlah": 5, "rata2": 75.6, "min": 55.0, "max": 90.0, "distribusi_grade": {"A": 2, "B": 2, "D": 1}, "status": "ok"}
+[PRODUCER-eager] pengumuman -> {"pengumuman": "Kuliah daring besok!", "status": "disiarkan"}
+[PRODUCER] selesai dalam 7.6s
+===== chain =====
+=== Chain: hitung_nilai_akhir -> tambah_predikat ===
+{
+  "nama": "Ani",
+  "tugas": 80,
+  "uts": 75,
+  "uas": 90,
+  "nilai_akhir": 82.5,
+  "grade": "B",
+  "status": "ok+predikat",
+  "lulus": true,
+  "predikat": "Baik"
+}
+
+=== Group: 3 nilai paralel + rekap ===
+[
+  {
+    "nama": "Ani",
+    "tugas": 80,
+    "uts": 75,
+    "uas": 90,
+    "nilai_akhir": 82.5,
+    "grade": "B",
+    "status": "ok"
+  },
+  {
+    "nama": "Budi",
+    "tugas": 60,
+    "uts": 65,
+    "uas": 70,
+    "nilai_akhir": 65.5,
+    "grade": "C",
+    "status": "ok"
+  },
+  {
+    "nama": "Citra",
+    "tugas": 90,
+    "uts": 95,
+    "uas": 92,
+    "nilai_akhir": 92.3,
+    "grade": "A",
+    "status": "ok"
+  }
+]
+rekap: {
+  "jumlah": 3,
+  "rata2": 80.1,
+  "min": 65.5,
+  "max": 92.3,
+  "distribusi_grade": {
+    "A": 1,
+    "B": 1,
+    "C": 1
+  },
+  "status": "ok"
+}
