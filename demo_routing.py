@@ -1,20 +1,10 @@
-"""Demo message handling: Fan-Out vs Topic vs Wildcard (domain perbankan).
-
-Hanya DEMO routing AMQP memakai kombu, default memory:// sehingga bisa jalan
-TANPA RabbitMQ di laptop mana pun. Dengan --broker amqp://... bisa dites
-ke RabbitMQ asli.
-
-Contoh:
-    python demo_routing.py
-    python demo_routing.py --broker amqp://guest:guest@localhost:5672//
-"""
+"""Demo routing AMQP: Fan-Out vs Topic vs Wildcard (perbankan, memory://)."""
 
 import argparse
 from kombu import Connection, Exchange, Queue
 
 
 def _drain(channel, queue: Queue):
-    """Ambil semua pesan yang menunggu di queue (lalu ack)."""
     out = []
     q = queue(channel)
     while True:
@@ -36,7 +26,6 @@ def demo_fanout(conn: Connection):
     qb = Queue("demo_fanout_B", exchange=ex, routing_key="")
     qa(ch).declare()
     qb(ch).declare()
-    # bersihkan sisa lama
     _drain(ch, qa)
     _drain(ch, qb)
     conn.Producer(ch).publish(
@@ -85,9 +74,9 @@ def demo_wildcard(conn: Connection):
     _drain(ch, q_star)
     _drain(ch, q_hash)
     prod = conn.Producer(ch)
-    prod.publish({"n": 1}, exchange=ex, routing_key="transaksi.transfer")          # 2 level
-    prod.publish({"n": 2}, exchange=ex, routing_key="transaksi.transfer.bifast")  # 3 level
-    prod.publish({"n": 3}, exchange=ex, routing_key="kliring.masuk")               # bukan transaksi
+    prod.publish({"n": 1}, exchange=ex, routing_key="transaksi.transfer")
+    prod.publish({"n": 2}, exchange=ex, routing_key="transaksi.transfer.bifast")
+    prod.publish({"n": 3}, exchange=ex, routing_key="kliring.masuk")
     rs, rh = _drain(ch, q_star), _drain(ch, q_hash)
     print("  kirim 3 pesan: 'transaksi.transfer', 'transaksi.transfer.bifast', 'kliring.masuk'")
     print(f"  -> binding 'transaksi.*' terima {len(rs)} pesan: {rs}")
@@ -101,7 +90,7 @@ def demo_wildcard(conn: Connection):
 def main():
     ap = argparse.ArgumentParser(description="Demo Fan-Out / Topic / Wildcard")
     ap.add_argument("--broker", default="memory://",
-                    help="memory:// (default, tanpa server) atau amqp://guest:guest@localhost:5672//")
+                    help="memory:// (default) atau amqp://guest:guest@localhost:5672//")
     args = ap.parse_args()
 
     print(f"[broker] {args.broker}\n")

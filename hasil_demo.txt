@@ -40,7 +40,7 @@ Wildcard : pola di atas topic; '*' = 1 kata, '#' = 0..N kata. Contoh: transaksi.
 [PRODUCER-eager] validasi -> {"id_transaksi": "TRX-099", "asal": "8800001234", "tujuan": "8819500599", "nominal": 582084.0, "saldo": 2000000.0, "valid": true, "alasan": "ok", "status": "ok"}
 [PRODUCER-eager] rekap -> {"jumlah": 5, "total_nominal": 1145000.0, "rata2": 229000.0, "min": 75000.0, "max": 500000.0, "distribusi_kategori": {"kecil": 1, "sedang": 4}, "status": "ok"}
 [PRODUCER-eager] notifikasi -> {"notifikasi": "Transfer Rp500.000 berhasil!", "status": "terkirim"}
-[PRODUCER] selesai dalam 7.5s
+[PRODUCER] selesai dalam 7.6s
 ===== chain =====
 === Chain: proses_transfer -> kirim_mutasi ===
 {

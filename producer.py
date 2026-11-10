@@ -1,37 +1,18 @@
-"""Producer — pembangkit data masukan (input generator) untuk broker + worker.
-
-Tugas 3: skrip producer yang pesannya diterima broker dan dikerjakan worker.
-Domain perbankan (demo saja): data transaksi + nominal acak.
-
-Mode:
-  --eager   : tanpa RabbitMQ, task dieksekusi langsung (untuk demo di laptop).
-  default   : kirim ke broker (butuh RabbitMQ + worker jalan, lihat README).
-
-Contoh:
-    python producer.py --demo --eager            # demo cepat tanpa broker
-    python producer.py --demo                    # kirim 8 job campuran ke broker
-    python producer.py --app transfer --num 6    # 6 transfer acak ke topic transaksi.transfer
-    python producer.py --app notifikasi --pesan "Transfer Rp500.000 berhasil!" --num 1
-    python producer.py --app rekap --num 1 --eager
-"""
+"""Producer perbankan: bangkitkan transaksi acak (--eager tanpa broker)."""
 
 import argparse
 import json
 import random
 import time
 
-# Simulasi akun yang sedang login: rekening asal diambil dari sini,
-# nasabah cukup memilih rekening tujuan dan memasukkan nominal.
 AKUN_LOGIN = "8800001234"
 
 
 def gen_transaksi(rng: random.Random, i: int) -> dict:
-    # Rekening asal diperoleh dari akun yang sedang digunakan (simulasi login).
-    asal = AKUN_LOGIN
     tujuan = f"88{rng.randint(1000, 9999)}{i + 500:04d}"
     return {
         "id": f"TRX-{i:03d}",
-        "asal": asal,
+        "asal": AKUN_LOGIN,
         "tujuan": tujuan,
         "nominal": rng.randint(50000, 1000000),
         "saldo": 2000000,
@@ -39,7 +20,6 @@ def gen_transaksi(rng: random.Random, i: int) -> dict:
 
 
 def send_eager(app_name: str, jobs: list):
-    """Jalankan task langsung tanpa broker (Celery eager)."""
     from tasks import validasi_transaksi, proses_transfer, rekap_keuangan, notifikasi_transaksi
 
     out = []
@@ -63,7 +43,6 @@ def send_eager(app_name: str, jobs: list):
 
 
 def send_broker(app_name: str, jobs: list):
-    """Kirim task ke broker RabbitMQ (butuh worker hidup)."""
     from tasks import validasi_transaksi, proses_transfer, rekap_keuangan, notifikasi_transaksi
 
     out = []
@@ -78,7 +57,6 @@ def send_broker(app_name: str, jobs: list):
                 )
             elif kind == "transfer":
                 d = job["data"]
-                # routing topic eksplisit (Tugas 1): transaksi.transfer
                 r = proses_transfer.apply_async(
                     args=[d["asal"], d["tujuan"], d["nominal"]],
                     exchange="bank", routing_key="transaksi.transfer",
@@ -88,7 +66,6 @@ def send_broker(app_name: str, jobs: list):
                     args=[job["daftar"]], exchange="bank", routing_key="keuangan.rekap"
                 )
             elif kind == "notifikasi":
-                # fan-out: exchange notifikasi, routing_key diabaikan
                 r = notifikasi_transaksi.apply_async(
                     args=[job["pesan"]], exchange="notifikasi"
                 )
@@ -96,12 +73,10 @@ def send_broker(app_name: str, jobs: list):
                 continue
             print(f"[PRODUCER] terkirim {kind} task_id={r.id} (menunggu worker...)")
             out.append(r)
-    except Exception as exc:  # noqa: BLE001 - mis. RabbitMQ belum jalan
+    except Exception as exc:  # noqa: BLE001
         print("[PRODUCER] GAGAL kirim ke broker:", exc)
-        print("[PRODUCER] Pastikan RabbitMQ jalan (brew services start rabbitmq / docker)")
-        print("[PRODUCER] atau ulangi dengan mode --eager (tanpa broker).")
+        print("[PRODUCER] Pastikan RabbitMQ jalan atau ulangi dengan --eager.")
         return []
-    # tunggu hasil (opsional, butuh result backend)
     for r in out:
         try:
             print(f"[PRODUCER] hasil {r.id}: {json.dumps(r.get(timeout=30))}")

@@ -1,12 +1,4 @@
-"""Demo chain / group Celery (analogi run_chain.py contoh dosen, versi perbankan).
-
-Tanpa broker: pakai eager sehingga bisa jalan di laptop mana pun.
-Dengan broker: hapus baris task_always_eager dan jalankan worker dulu.
-
-Contoh:
-    python run_chain.py          # eager, tanpa RabbitMQ
-    python run_chain.py --broker # via broker (butuh RabbitMQ + worker)
-"""
+"""Demo chain/group Celery perbankan (eager default, --broker untuk RabbitMQ)."""
 
 import argparse
 import json
@@ -22,7 +14,7 @@ def main():
     from tasks import proses_transfer, kirim_mutasi, rekap_keuangan
 
     if not args.broker:
-        app.conf.task_always_eager = True  # demo tanpa RabbitMQ
+        app.conf.task_always_eager = True
 
     print("=== Chain: proses_transfer -> kirim_mutasi ===")
     job = chain(
